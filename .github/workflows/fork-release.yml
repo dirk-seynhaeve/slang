@@ -1,0 +1,57 @@
+name: Fork release (Windows, Release configuration)
+
+# The upstream v12.1 Windows asset was built in the Debug configuration: the Visual Studio
+# generator ignores CMAKE_BUILD_TYPE, and the build step passed no --config. This builds the
+# same tag with --config Release. Upstream fix: MikePopoloski/slang#2103.
+
+on:
+  push:
+    tags:
+      - 'fork-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build
+        run: |
+          cmake -B build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded `
+            -DSLANG_INCLUDE_TESTS=OFF
+          cmake --build build -j8 --config Release
+      - name: Check
+        shell: pwsh
+        run: |
+          build/bin/slang.exe --version
+          $size = (Get-Item build/bin/slang.exe).Length
+          "slang.exe is $size bytes"
+          if ($size -gt 15MB) { throw "slang.exe is larger than a Release build should be" }
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path build/bin/slang.exe -DestinationPath dist/slang-windows-x86_64.zip
+          Set-Location dist
+          $h = (Get-FileHash -Algorithm SHA256 slang-windows-x86_64.zip).Hash.ToLower()
+          "$h  slang-windows-x86_64.zip" | Out-File -Encoding ascii -NoNewline SHA256SUMS
+          Add-Content -Encoding ascii -Path SHA256SUMS -Value ""
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          cat > notes.md <<'NOTES'
+          slang v12.1, Windows x86_64 only, built in the Release configuration.
+
+          The upstream v12.1 Windows asset is a Debug build: the Visual Studio generator ignores `CMAKE_BUILD_TYPE`, and the release workflow's build step passes no `--config`. This release builds the unchanged v12.1 source with `--config Release` (about 5.5 MB instead of 26 MB, and 6-40x faster on generate-heavy input). Upstream fix: MikePopoloski/slang#2103. Use the upstream v12.1 assets for Linux and macOS.
+
+          SHA256SUMS lists the archive.
+          NOTES
+          gh release create "$GITHUB_REF_NAME" dist/slang-windows-x86_64.zip dist/SHA256SUMS --title "slang v12.1, Windows Release build" --notes-file notes.md
