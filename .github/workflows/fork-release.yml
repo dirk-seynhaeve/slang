@@ -2,7 +2,7 @@ name: Fork release (Windows, Release configuration)
 
 # The upstream v12.1 Windows asset was built in the Debug configuration: the Visual Studio
 # generator ignores CMAKE_BUILD_TYPE, and the build step passed no --config. This builds the
-# same tag with --config Release. Upstream fix: MikePopoloski/slang#2103.
+# unchanged v12.1 tag (checked out by ref) with --config Release. Upstream fix: MikePopoloski/slang#2103.
 
 on:
   push:
@@ -18,6 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: v12.1
           fetch-depth: 0
       - name: Build
         run: |
@@ -29,7 +30,9 @@ jobs:
       - name: Check
         shell: pwsh
         run: |
-          build/bin/slang.exe --version
+          $v = build/bin/slang.exe --version
+          $v
+          if ($v -ne 'slang version 12.1.0+42710c788') { throw "unexpected version: $v" }
           $size = (Get-Item build/bin/slang.exe).Length
           "slang.exe is $size bytes"
           if ($size -gt 15MB) { throw "slang.exe is larger than a Release build should be" }
@@ -40,8 +43,7 @@ jobs:
           Compress-Archive -Path build/bin/slang.exe -DestinationPath dist/slang-windows-x86_64.zip
           Set-Location dist
           $h = (Get-FileHash -Algorithm SHA256 slang-windows-x86_64.zip).Hash.ToLower()
-          "$h  slang-windows-x86_64.zip" | Out-File -Encoding ascii -NoNewline SHA256SUMS
-          Add-Content -Encoding ascii -Path SHA256SUMS -Value ""
+          [IO.File]::WriteAllText("$PWD/SHA256SUMS", "$h  slang-windows-x86_64.zip`n")
       - name: Release
         env:
           GH_TOKEN: ${{ github.token }}
